@@ -8,7 +8,7 @@ Music instrument datasets are scarce and usually very large, composed by thousan
 **dx7pytorch** addresses this problem by bundling an <a href="https://en.wikipedia.org/wiki/Frequency_modulation_synthesis" target="_blank"> FM Synthesizer</a> core into a Pytorch dataset wrapper. 
 
 The synthesizer core is a C++ emulator of the famous <a href="http://www.vintagesynth.com/yamaha/dx7.php" target="_blank">Yamaha DX7</a>, a programmable digital instrument for which
-rich and varied timbres can be created by manipulating its internal parameters. Each combination of parameters describes a particular timbre and it is called **patch**. 
+rich and varied timbres can be created by manipulating its internal parameters. Each combination of parameters is called **patch** and describes a particular timbre. 
 
 There exist thousands of patches for this instrument. Included in the repo there is a download script that compiles a large collection of patches (140k) which can be synthesized into sound
 samples at any **note** or **velocity**. Hence, the dataset only requires to store patch information, occupying only a couple of Megabytes.
@@ -49,5 +49,5 @@ samples at any **note** or **velocity**. Hence, the dataset only requires to sto
 1. Now, check out the **tests** directory at this repo!
 
 ## Acknowledgements
-- The synthesizer core of **dx7pytorch** is based in the excellent <a href="https://github.com/smbolton/hexter" target="_blank">Hexter</a> DX7 emulator. Licensed under GPL-2.0
+- The synthesizer core of **dx7pytorch** is based in the <a href="https://github.com/smbolton/hexter" target="_blank">Hexter</a> DX7 emulator. Licensed under GPL-2.0
 - DX7 Patch collection extracted from <a href="http://bobbyblues.recup.ch/yamaha_dx7/dx7_patches.html" target="_blank">Bobby Blues</a> webpage.
