@@ -1,0 +1,2 @@
+recursive-include dx7pytorch/dxdataset *
+recursive-include dx7pytorch/dxsynth *
