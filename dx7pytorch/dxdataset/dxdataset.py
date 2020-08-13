@@ -41,7 +41,7 @@ class dxdataset(data.Dataset):
         
         print("dx7pytorch: FM Synthesizer for deep learning. Loading dataset . . . ")
         
-        patch_file = path.abspath(root)
+        patch_file = path.abspath(collection)
         
         # Open file list to process patches. 
         # I think the easiest way is to store everythig in RAM, to minimize disk access.

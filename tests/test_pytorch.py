@@ -14,7 +14,7 @@ import torch
 #import simpleaudio as sa #UNCOMMENT FOR AUDIO LISTENING
 
 dataset = dxds.dxdataset(16000 ,'../dataset/collection.bin',
-                           (48,50),(127,),16000,16000,subsample_ratio = 1,random_seed=1234,filter_function='all_ratio',debug=False)
+                           (48,50),(127,),16000,16000,subsample_ratio = 0.1,random_seed=1234,filter_function='all_ratio',debug=False)
 
 n_train_examples = int(len(dataset)*0.7)
 n_valid_examples = int(len(dataset)*0.2)
