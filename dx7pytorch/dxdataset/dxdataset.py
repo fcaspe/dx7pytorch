@@ -116,7 +116,7 @@ class dxdataset(data.Dataset):
         z = y[145:155]
         #REMOVE PATCH NAME AND OP ON/OFF
         y = y[0:145]
-        return {'audio': x, 'patch': y,'name': z}
+        return {'audio': x, 'patch': y,'name': z,'note': note, 'velocity': velocity}
     
     def filter_get_all_op_ratio(self,patch):
         # Check that all OP work in OSC MODE = ratio = 0.
