@@ -6,7 +6,7 @@ mkdir all_patches
 echo "[INFO] Searching for all DX7 patch files  . . ."
 find ./DX7_AllTheWeb -name '*.SYX' -exec mv -f {} ./all_patches/ \;
 find ./DX7_AllTheWeb -name '*.syx' -exec mv -f {} ./all_patches/ \;
-echo "[INFO] Packing patches onto a single file. This may take a couple of minutes . . . "
+echo "[INFO] Packing patches onto a single file. This may take a while. . . "
 python3 patchpacker.py ./all_patches
 
 echo "[INFO] Cleaning up . . ."
