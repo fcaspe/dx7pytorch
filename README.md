@@ -47,7 +47,7 @@ See next sections to know how to replicate the filtering process and compile you
     ```
 1. Now, check out the **tests** directory at this repo!
 
-## Compile your own dataset
+## Compile your own patch collection
 
 This dataset contains a subset of unique patches extracted from <a href="http://bobbyblues.recup.ch/yamaha_dx7/dx7_patches.html" target="_blank">Bobby Blues</a> webpage.
 
@@ -55,9 +55,10 @@ This dataset contains a subset of unique patches extracted from <a href="http://
     ```
     source generate_dataset.sh
     ```
-    The script will download the complete patch collection, move all files to a single directory and run the **patch_packer.py** script which will scan for uniqueness and
-    compile the filtered patches onto a **collection.bin** file which can be used by **dx7pytorch**. 
-    *Note: it is not the most efficient algorithm ever done. (Took 1h 30min on my computer)*
+    The script will download the original patch collection, move all files to a single directory and run the **patch_packer.py** script which will scan for uniqueness and
+    compile the filtered patches onto a **collection.bin** file which can be used by **dx7pytorch**. From the 140192 patches, only 29830 are unique.
+
+    *Note: Processing all patches takes a while; 1h 30min on my computer.*
      
      
 * To compile your own patch collection, extracted from Yamaha DX7 sysex files, put all your patch files into an empty directory, and run:
