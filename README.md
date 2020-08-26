@@ -56,7 +56,7 @@ This dataset contains a subset of unique patches extracted from <a href="http://
     source generate_dataset.sh
     ```
     The script will download the original patch collection, move all files to a single directory and run the **patch_packer.py** script which will scan for uniqueness and
-    compile the filtered patches onto a **collection.bin** file which can be used by **dx7pytorch**. From the 140192 patches, only 29830 are unique.
+    compile the filtered patches onto a **collection.bin** file which can be used by **dx7pytorch**. From the 140192 patches downloaded, only 29830 are unique.
 
     *Note: Processing all patches takes a while; 1h 30min on my computer.*
      
@@ -65,7 +65,7 @@ This dataset contains a subset of unique patches extracted from <a href="http://
     ```
     python3 patch_packer.sh /path/to/patch/dir/
     ```
-    The packer will scan for uniqueness and generate the **collection.bin** file.
+    The packer will scan for uniqueness and generate a **collection.bin** file.
 
 ## Acknowledgements
 - The synthesizer core of **dx7pytorch** is based on the <a href="https://github.com/smbolton/hexter" target="_blank">Hexter</a> DX7 emulator. Licensed under GPL-2.0

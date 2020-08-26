@@ -15,7 +15,7 @@ class dxdataset(data.Dataset):
             subsample_ratio=None,
             random_seed=None,
             filter_function=None,
-            debug=True,):
+            debug=False,):
         """
         Args:
             sample_rate (int): Sample frequency of synthesizer.
