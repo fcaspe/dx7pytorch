@@ -42,10 +42,18 @@ See next sections to know how to replicate the filtering process and compile you
 ## Try it!
 
 1. Install this Python package: 
+    ```bash
+    pip install git+https://github.com/fcaspe/dx7pytorch
     ```
-    pip3 install git+https://github.com/fcaspe/dx7pytorch
+1. Or manually install and test it
+    ```bash
+    git clone https://github.com/fcaspe/dx7pytorch
+    cd dx7pytorch
+    python setup.py install
+    cd tests
+    python test_pytorch.py 
     ```
-1. Now, check out the **tests** directory at this repo!
+
 
 ## Compile your own patch collection
 

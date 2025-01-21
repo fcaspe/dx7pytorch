@@ -11,7 +11,7 @@ import numpy as np
 from dx7pytorch.dxdataset import DXDataset
 import torch.utils.data as data
 import torch
-import simpleaudio as sa #UNCOMMENT FOR AUDIO LISTENING
+#import simpleaudio as sa #UNCOMMENT FOR AUDIO LISTENING
 
 dataset = DXDataset(16000 ,'../dataset/collection.bin',
                            (48,50),(127,),16000,16000,subsample_ratio = 0.1,random_seed=1234,filter_function='all_ratio',debug=False)
@@ -42,9 +42,9 @@ for instance in train_loader:
         # Convert to 16-bit data
         audio = audio.astype(np.int16)
         # Start playback
-        play_obj = sa.play_buffer(audio, 1, 2, 16000) #UNCOMMENT FOR AUDIO LISTENING
+        #play_obj = sa.play_buffer(audio, 1, 2, 16000) #UNCOMMENT FOR AUDIO LISTENING
 
         # Wait for playback to finish before exiting
-        play_obj.wait_done()                          #UNCOMMENT FOR AUDIO LISTENING
+        #play_obj.wait_done()                          #UNCOMMENT FOR AUDIO LISTENING
 
 print("Done.")
