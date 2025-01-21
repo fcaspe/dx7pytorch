@@ -1,14 +1,8 @@
-'''
-setup.py
-
-Nice info extracted from:
-    https://godatadriven.com/blog/a-practical-guide-to-using-setup-py/
-    https://stackoverflow.com/questions/45347685/run-makefile-on-pip-install
-'''
 #!/usr/bin/env python
 
 import os
-from sys import platform
+import platform
+from sys import platform as sys_platform
 from setuptools import setup
 from setuptools.command.install import install
 from distutils.command.build import build
@@ -19,44 +13,47 @@ BASEPATH = os.path.dirname(os.path.abspath(__file__))
 
 class DX7Build(build):
     def run(self):
-        # run original build code
-        build.run(self)
+        build.run(self)  # Run the original build code
 
-        # build XCSoar
+        # Detect platform
+        system = platform.system().lower()
         build_path = os.path.abspath(self.build_temp)
+        
+        cmd = ['make', 'OUT=' + build_path]
 
-        cmd = [
-            'make',
-            'OUT=' + build_path,
-        ]
+        # Add platform-specific options
+        if system == 'darwin':  # macOS
+            cmd.append('PLATFORM=macos')
+        elif system == 'windows':  # Windows
+            cmd.append('PLATFORM=windows')
+        else:  # Default to Linux
+            cmd.append('PLATFORM=linux')
 
         try:
             cmd.append('-j%d' % cpu_count())
         except NotImplementedError:
-            print('Unable to determine number of CPUs. Using single threaded make.')
-
-        #options = [
-        #    'DEBUG=n',
-        #    'ENABLE_SDL=n',
-        #]
-        #cmd.extend(options)
+            print('Unable to determine number of CPUs. Using single-threaded make.')
 
         targets = ['all']
         cmd.extend(targets)
 
-        target_files = [os.path.join(BASEPATH, 'dxcore.so')]
+        # Adjust target files based on platform
+        target_files = {
+            'linux': os.path.join(BASEPATH, 'dxcore.so'),
+            'darwin': os.path.join(BASEPATH, 'dxcore.dylib'),
+            'windows': os.path.join(BASEPATH, 'dxcore.dll')
+        }
+        target_file = target_files.get(system, 'dxcore.so')  # Default to .so for unknown systems
 
         def compile():
             call(cmd, cwd=BASEPATH)
 
         self.execute(compile, [], 'Compiling dx7pytorch')
 
-        # copy resulting tool to library build folder
+        # Copy the resulting files to the build directory
         self.mkpath(self.build_lib)
-
         if not self.dry_run:
-            for target in target_files:
-                self.copy_file(target, self.build_lib)
+            self.copy_file(target_file, self.build_lib)
 
 
 class DX7Install(install):
@@ -69,44 +66,39 @@ class DX7Install(install):
         self.set_undefined_options('build', ('build_scripts', 'build_scripts'))
 
     def run(self):
-        # run original install code
-        install.run(self)
-
-        # install executables
-        self.copy_tree(self.build_lib, self.install_lib)
-
-
-def read(fname):
-    return open(os.path.join(os.path.dirname(__file__), fname)).read()
+        install.run(self)  # Run the original install code
+        self.copy_tree(self.build_lib, self.install_lib)  # Copy the built libraries
 
 
 setup(
     name='dx7pytorch',
-    package_dir = {
+    package_dir={
         'dx7pytorch': 'dx7pytorch',
         'dx7pytorch.dxsynth': 'dx7pytorch/dxsynth',
-        'dx7pytorch.dxdataset': 'dx7pytorch/dxdataset'},
-    packages=['dx7pytorch', 'dx7pytorch.dxsynth',
-              'dx7pytorch.dxdataset'],
+        'dx7pytorch.dxdataset': 'dx7pytorch/dxdataset',
+    },
+    packages=['dx7pytorch', 'dx7pytorch.dxsynth', 'dx7pytorch.dxdataset'],
     version='0.1',
-    description='DX7 FM Synthesizer for deep learning in Pytorch.',
+    description='DX7 FM Synthesizer for deep learning in PyTorch.',
     author='Franco Caspe',
     author_email='francocaspe@hotmail.com',
     maintainer='Franco Caspe',
     maintainer_email='francocaspe@hotmail.com',
     license='GPLv2',
     url='',
-    #long_description=read('README.rst'),
     classifiers=[
         'Development Status :: 2 - Pre-Alpha',
         'Intended Audience :: Developers',
         'Intended Audience :: Science/Research',
         'License :: OSI Approved :: GNU General Public License v2 (GPLv2)',
         'Operating System :: Unix',
+        'Operating System :: MacOS :: MacOS X',
+        'Operating System :: Microsoft :: Windows',
         'Programming Language :: C++',
+        'Programming Language :: Python',
         'Topic :: Scientific/Engineering :: Information Analysis',
     ],
-    install_requires=['numpy','torch'],
+    install_requires=['numpy', 'torch'],
     cmdclass={
         'build': DX7Build,
         'install': DX7Install,

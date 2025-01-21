@@ -2,10 +2,10 @@ import torch
 from torch import dtype as torch_dtype
 from torch.utils import data
 import numpy as np
-from dx7pytorch import dxsynth as dxs
+from dx7pytorch.dxsynth import DX7_VOICE_SIZE_PACKED, DXSynth
 from os import path
 
-class dxdataset(data.Dataset):
+class DXDataset(data.Dataset):
     """DX7 sound patch dataset."""
 
     def __init__(self, sample_rate:int,
@@ -37,7 +37,7 @@ class dxdataset(data.Dataset):
         self.debug = debug
         
         #Instantiate Synthesizer
-        self.synth = dxs.dxsynth(sampling_frequency=sample_rate)
+        self.synth = DXSynth(sampling_frequency=sample_rate)
         
         print("dx7pytorch: FM Synthesizer for deep learning. Loading dataset . . . ")
         
@@ -48,7 +48,7 @@ class dxdataset(data.Dataset):
         self.patches = np.empty(0)
         
         bulk_patches = np.fromfile(patch_file, dtype=np.uint8)
-        n_patches = int(len(bulk_patches)/dxs.DX7_VOICE_SIZE_PACKED)
+        n_patches = int(len(bulk_patches)/DX7_VOICE_SIZE_PACKED)
         if(self.debug): print("[DEBUG] Total patches: {}".format(n_patches))
         
         if(filter_function == 'all_ratio'):
@@ -78,8 +78,8 @@ class dxdataset(data.Dataset):
 
         #Reshape patches
         patch_byte_count = self.patches.size
-        n_patches = patch_byte_count // dxs.DX7_VOICE_SIZE_PACKED
-        self.patches = self.patches.reshape((n_patches, dxs.DX7_VOICE_SIZE_PACKED)).astype(np.uint8)
+        n_patches = patch_byte_count // DX7_VOICE_SIZE_PACKED
+        self.patches = self.patches.reshape((n_patches, DX7_VOICE_SIZE_PACKED)).astype(np.uint8)
         # Store synthesis parameters
         self.notes = np.asarray(valid_notes)
         self.velocities = np.asarray(valid_velocities)

@@ -1,3 +1,5 @@
-from .dxsynth import DX7_DUMP_SIZE_VOICE_BULK, DX7_VOICE_SIZE_PACKED,open_bulk_patches,dxsynth
+from .dxsynth import DXSynth
+from .dxsynth import DX7_VOICE_SIZE_PACKED
 
-__version__ = 0.1
+__all__ = ["DXSynth, DX7_VOICE_SIZE_PACKED"]
+__version__ = "0.1"
