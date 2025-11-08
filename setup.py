@@ -73,11 +73,9 @@ class DX7Install(install):
 setup(
     name='dx7pytorch',
     package_dir={
-        'dx7pytorch': 'dx7pytorch',
-        'dx7pytorch.dxsynth': 'dx7pytorch/dxsynth',
-        'dx7pytorch.dxdataset': 'dx7pytorch/dxdataset',
+        'dx7pytorch': 'dx7pytorch'
     },
-    packages=['dx7pytorch', 'dx7pytorch.dxsynth', 'dx7pytorch.dxdataset'],
+    packages=['dx7pytorch'],
     version='0.1',
     description='DX7 FM Synthesizer for deep learning in PyTorch.',
     author='Franco Caspe',

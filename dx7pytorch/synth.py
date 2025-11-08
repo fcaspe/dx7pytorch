@@ -2,7 +2,6 @@ import os
 import platform
 import ctypes
 import numpy as np
-import numpy.ctypeslib as npct
 from ctypes import cdll
 
 # dx7 sysex format: https://homepages.abdn.ac.uk/d.j.benson/pages/dx7/sysex-format.txt
@@ -48,7 +47,7 @@ class DXSynth:
 
         # Build the full path to the shared library
         my_path = os.path.dirname(os.path.abspath(__file__))
-        dll_path = os.path.join(my_path, '../../', lib_name)
+        dll_path = os.path.join(my_path, '../', lib_name)
 
         if not os.path.exists(dll_path):
             raise FileNotFoundError(f"Shared library not found at {dll_path}")

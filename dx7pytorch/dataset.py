@@ -1,21 +1,21 @@
-import torch
-from torch import dtype as torch_dtype
 from torch.utils import data
 import numpy as np
-from dx7pytorch.dxsynth import DX7_VOICE_SIZE_PACKED, DXSynth
+from dx7pytorch import DX7_VOICE_SIZE_PACKED, DXSynth
+from dx7pytorch.filters import filter_allpass
 from os import path
 
 class DXDataset(data.Dataset):
     """DX7 sound patch dataset."""
 
     def __init__(self, sample_rate:int,
-            collection:str, valid_notes, valid_velocities,
+            collection:str, 
+            valid_notes, 
+            valid_velocities,
             note_on_len:int,
             note_off_len:int,
             subsample_ratio=None,
             random_seed=None,
-            filter_function=None,
-            debug=False,):
+            filter_function=None):
         """
         Args:
             sample_rate (int): Sample frequency of synthesizer.
@@ -30,16 +30,15 @@ class DXDataset(data.Dataset):
             random_seed (int): Seeds the random generator.
             
             filter_function (string): Selects a patch filter function. Available: 'all_ratio' and 'all_fixed'.
-            debug (Bool): Enables verbose output.
             
         """
         np.random.seed(random_seed)
-        self.debug = debug
+        #self.debug = debug
         
         #Instantiate Synthesizer
         self.synth = DXSynth(sampling_frequency=sample_rate)
         
-        print("dx7pytorch: FM Synthesizer for deep learning. Loading dataset . . . ")
+        #print("dx7pytorch: FM Synthesizer for deep learning. Loading dataset . . . ")
         
         patch_file = path.abspath(collection)
         
@@ -49,25 +48,23 @@ class DXDataset(data.Dataset):
         
         bulk_patches = np.fromfile(patch_file, dtype=np.uint8)
         n_patches = int(len(bulk_patches)/DX7_VOICE_SIZE_PACKED)
-        if(self.debug): print("[DEBUG] Total patches: {}".format(n_patches))
+        #if(self.debug): print("[DEBUG] Total patches: {}".format(n_patches))
         
-        if(filter_function == 'all_ratio'):
-            my_filter = self.filter_get_all_op_ratio
-        elif(filter_function == 'all_fixed'):
-            my_filter = self.filter_get_all_op_fixed
+        if filter_function is None:
+            my_filter = filter_allpass
         else:
-            my_filter = self.filter_allpass
+            my_filter = filter_function
         
         for i in range(n_patches):
             patch = bulk_patches[i*128:(i+1)*128]
             
-            # Process Patch Name. Keep only names below 128 and decide to ascii.
+            # Process Patch Name. Keep only names below 128 and decode to ascii.
             patch_name = patch[118:127]
             patch_name = patch_name * ( patch_name < 128)
             patch_name = patch_name.tostring().decode('ascii')
             
-            if(self.debug):
-                print("Processing {}:{} ...".format(i,patch_name),end='')
+            #if(self.debug):
+            #    print("Processing {}:{} ...".format(i,patch_name),end='')
             
             if(my_filter(patch) == True):
                 if(subsample_ratio!= None):
@@ -81,23 +78,23 @@ class DXDataset(data.Dataset):
         n_patches = patch_byte_count // DX7_VOICE_SIZE_PACKED
         self.patches = self.patches.reshape((n_patches, DX7_VOICE_SIZE_PACKED)).astype(np.uint8)
         # Store synthesis parameters
-        self.notes = np.asarray(valid_notes)
-        self.velocities = np.asarray(valid_velocities)
+        self.valid_notes = np.asarray(valid_notes)
+        self.valid_velocities = np.asarray(valid_velocities)
         self.note_on_len = note_on_len
         self.note_off_len = note_off_len
-        print("Starting with {} patches. \n\tnotes: {} \tvelocities: {} \n\
-        sample_rate: {} Hz \tnote_on_len: {} \tnote_off_len: {}".format(n_patches,self.notes,self.velocities,sample_rate,self.note_on_len,self.note_off_len))
+        #print("Starting with {} patches. \n\tnotes: {} \tvelocities: {} \n\
+        #sample_rate: {} Hz \tnote_on_len: {} \tnote_off_len: {}".format(n_patches,self.valid_notes,self.valid_velocities,sample_rate,self.note_on_len,self.note_off_len))
         
     def __len__(self):
-        n_notes = self.notes.size
-        n_velocities = self.velocities.size
+        n_notes = self.valid_notes.size
+        n_velocities = self.valid_velocities.size
         n_patches = self.patches.shape[0]
         return n_notes * n_velocities * n_patches
 
     def __getitem__(self, idx: int):
-        # Obtain patch number,note and velocity from idx
-        n_notes = self.notes.size
-        n_velocities = self.velocities.size
+        # Obtain patch number, note and velocity from idx
+        n_notes = self.valid_notes.size
+        n_velocities = self.valid_velocities.size
         n_patches = self.patches.shape[0]
         idx_note = idx % (n_notes)
         idx //= (n_notes)
@@ -105,48 +102,22 @@ class DXDataset(data.Dataset):
         idx //= (n_velocities)
         idx_patch = idx
         
-        if(self.debug): print("idx_patch {} idx_note {} idx_velocity {} ".format(idx_patch,idx_note,idx_velocity))
+        #print("idx_patch {} idx_note {} idx_velocity {} ".format(idx_patch,idx_note,idx_velocity))
         patch = self.patches[idx_patch:idx_patch+1,:] #Wrapper expects array with 2D shape
-        note = self.notes[idx_note]
-        velocity = self.velocities[idx_velocity]
+        note = self.valid_notes[idx_note]
+        velocity = self.valid_velocities[idx_velocity]
         x = self.synth.synthesize(patch,note,velocity,self.note_on_len,self.note_off_len)
         y = self.unpack_packed_patch(patch[0])
         y = np.asarray(y,dtype=np.float32)
         #Extract name
-        z = y[145:155]
+        patch_name = bytearray()
+        for p in y[145:155]:
+            p = int(p) & 0x7F
+            patch_name.append(p)
+        patch_name = patch_name.decode('ascii')
         #REMOVE PATCH NAME AND OP ON/OFF
         y = y[0:145]
-        return {'audio': x, 'patch': y,'name': z,'note': note, 'velocity': velocity}
-    
-    def filter_get_all_op_ratio(self,patch):
-        # Check that all OP work in OSC MODE = ratio = 0.
-        # Is done verifying each OSC MODE BIT for every patch.
-        idx = 15 # OP6 ratio data is at byte 15
-        check = np.uint8(0x00)
-        for i in range(6):
-            check = ( check | patch[idx] ) & 0x01
-            idx +=17 #Advance next OP
-
-        if(check == 0x00):
-            return True
-
-        return False
-    
-    def filter_get_all_op_fixed(self,patch):
-        # Check that all OP work in OSC MODE = ratio = 0.
-        # Is done verifying each OSC MODE BIT for every patch.
-        idx = 15 # OP6 ratio data is at byte 15
-        check = np.uint8(0x00)
-        for i in range(6):
-            check = ( check | (not (patch[idx] & 0x01 ) ) ) & 0x01
-            idx +=17 #Advance next OP
-
-        if(check == 0x00):
-            return True
-        
-        return False
-    def filter_allpass(self,patch):
-        return True
+        return {'audio': x, 'patch': y,'name': patch_name,'note': note, 'velocity': velocity}
 
     # Nice unpacking method extracted from https://github.com/bwhitman/learnfm
     def unpack_packed_patch(self,p):
