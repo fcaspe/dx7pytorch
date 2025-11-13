@@ -4,6 +4,136 @@ from dx7pytorch import DX7_VOICE_SIZE_PACKED, DXSynth
 from dx7pytorch.filters import filter_allpass
 from os import path
 
+#podria haber una funcion que genere un valor de diccionario para las inversiones de ciertos tipos de acorde ( triadas y acordes de septima) 
+#como para no tener que escribirlo manualmente (capaz es medio overkill)
+
+def generate_inversions_with_bass(chord_name, intervals):
+    result = {}
+    #tonica
+    result[chord_name] = intervals
+
+    #crear cada inversion
+    for inversion_num in range (1, len(intervals)):
+        #agarrar notas empezando desde inversion_num
+        high_notes = intervals[inversion_num:]
+
+        #agarrar primer nota, agregar 12 (octava)
+        low_notes= [note+12 for note in intervals[:inversion_num]]
+
+        #combinar
+        inverted = high_notes + low_notes
+
+        #guardar
+        result[f"{chord_name}_inv{inversion_num}"]= inverted 
+    
+    #agregar bajo a cada inversion
+    bass_versions= {}
+    for name, chord in result.items():
+        #el bajo va a ser siempre la tonica [0] -12 o -24 (una octava o dos octavas abajo)
+        bass_note_low= intervals [0] -12
+        bass_note_lower= intervals [0] -24
+
+        bass_versions[f"{name}_bass_1"]= [bass_note_low] + chord
+        bass_versions[f"{name}_bass_2"]= [bass_note_lower] + chord
+    
+    #combinar todo
+    result.update(bass_versions)
+    return result
+
+
+BASE_CHORDS= {
+    #triadas 
+    'maj': [0,4,7], # tonica, tercera mayor, quinta
+    'min': [0,3,7], # tonica, tercera menor, quinta
+    'dim': [0,3,6], # tonica,tercera menor,quinta disminuida
+    'aug': [0,4,8], # tonica, tercera mayor,quinta aumentada
+    'sus2': [0,2,7], # tonica, segunda, quinta
+    'sus4': [0,5,7], # tonica, cuarta, quinta
+
+    #acordes de septima
+    'maj7': [0,4,7,11], #idem 'maj' + septima mayor
+    'dom7': [0,4,7,10],   #idem 'maj' + septima menor
+    'min7': [0,3,7,10], #idem 'min' + septima menor
+    'min7b5': [0,3,6,10], #idem 'dim' + septima menor
+    'dim7': [0,3,6,9], # cuatro terceras menores stackeadas
+    '7sus4': [0,5,7,10], # idem 'sus4' + septima menor
+
+    #extendidos
+    'maj9': [0,4,7,11,14], #idem 'maj7' + novena
+    'min9': [0,3,7,10,14], #idem 'min7' + novena
+    'dom9': [0,4,7,10,14], #idem 'dom7' + novena
+    'domsharp9': [0,4,7,10,15], # idem 'dom7' + novena aumentada
+    'domflat9': [0,4,7,10,13], # idem 'dom7' + novena disminuida
+}
+
+ARTIST_VOICINGS= {
+    #extendidos mas especificos, no vamos a necesitar inversiones para estos
+    # k.barron, k.jarrett, b.evans
+    'min11_barron': [0, 7, 14, 15, 22, 29],  # tonica, quinta, novena, tercera menor, oncena, septima menor
+    'maj_sharp11_barron': [0, 7, 14, 16, 18, 23], #tonica, quinta, novena, tercera mayor, oncena aumentada, septima mayor
+    'min11_jarrett': [7,12,15,17,22,26,31], #quinta, tonica, tercera menor, oncena, septima menor, novena, quinta
+    'maj9_evans_sowhat': [4,9,14,19,23], #tercera mayor, sexta, novena, quinta, septima mayor
+}
+
+#build el diccionario completo
+CHORD_VOICINGS = {}
+
+#generar todas las inversiones y bajos para los acordes base
+for chord_name, intervals in BASE_CHORDS.items():
+    CHORD_VOICINGS.update(generate_inversions_with_bass(chord_name, intervals))
+
+#los voicings de artistas especificos se mantienen igual, sin inversiones
+CHORD_VOICINGS.update(ARTIST_VOICINGS)
+
+print(f"Totla chord variations: {len(CHORD_VOICINGS)}")
+
+
+"""""
+# diccionario con la configuracion de voces (voicings) para acordes "comunes" y algunos no tan comunes jeje
+CHORD_VOICINGS = {
+    #triadas
+    'maj': [0,4,7], # tonica, tercera mayor, quinta
+    'maj_1stinv': [4, 7, 12], # tercera mayor, quinta, tonica
+    'maj_2ndinv': [7,12,16], #quinta, tercera mayor, tonica
+    'min': [0,3,7], # tonica, tercera menor, quinta
+    'min_1stinv': [3,7,12], # tercera menor, quinta, tonica
+    'min_2ndinv': [7,12,15], #quinta, tonica, tercera menor
+    'dim': [0,3,6], # tonica,tercera menor,quinta disminuida
+    'aug': [0,4,8], # tonica, tercera mayor,quinta aumentada
+    
+    #acordes de septima
+    'maj7': [0,4,7,11], #idem 'maj' + septima mayor
+    'maj7_1stinv': [4,7,11,12], #tercera mayor,quinta,septima mayor, tonica
+    'maj7_2ndinv': [7,11,12,16], #quinta,septima mayor, tonica, tercera mayor
+
+    'sus2': [0,2,7], # tonica, segunda, quinta
+    'sus4': [0,5,7], # tonica, cuarta, quinta
+
+    'dom7': [0,4,7,10],   #idem 'maj' + septima menor
+    'dom7_1stinv': [4,7,10,12], #tercera mayor,quinta,septima menor, tonica
+    'dom7_2ndinv': [7,10,12,16], #quinta,septima menor, tonica, tercera mayor
+    
+    'min7': [0,3,7,10], #idem 'min' + septima menor
+    'min7_1stinv': [3,7,10,12], #tercera menor,quinta,septima menor, tonica
+    'min7_2ndinv': [7,10,12,15], #quinta,septima menor, tonica, tercera menor
+    'min7b5': [0,3,6,10], #idem 'dim' + septima menor
+    
+    #extendidos
+    'maj9': [0,4,7,11,14], #idem 'maj7' + novena
+    'min9': [0,3,7,10,14], #idem 'min7' + novena
+    '7sus4': [0,5,7,10], # idem 'sus4' + septima menor
+
+    #extendidos mas especificos
+    # k.barron, k.jarrett, b.evans
+    'min11_barron': [0, 7, 14, 15, 22, 29],  # tonica, quinta, novena, tercera menor, oncena, septima menor
+    'maj_sharp11_barron': [0, 7, 14, 16, 18, 23], #tonica, quinta, novena, tercera mayor, oncena aumentada, septima mayor
+    'min11_jarrett': [7,12,15,17,22,26,31], #quinta, tonica, tercera menor, oncena, septima menor, novena, quinta
+    'maj9_evans_sowhat': [4,9,14,19,23], #tercera mayor, sexta, novena, quinta, septima mayor
+
+}
+"""
+
+
 class DXDataset(data.Dataset):
     """DX7 sound patch dataset."""
 
