@@ -4,6 +4,87 @@ from dx7pytorch import DX7_VOICE_SIZE_PACKED, DXSynth
 from dx7pytorch.filters import filter_allpass
 from os import path
 
+def generate_inversions_with_bass(chord_name, intervals):
+    result = {}
+    #root
+    result[chord_name] = intervals
+
+    #create each inversion
+    for inversion_num in range (1, len(intervals)):
+        #notes from inversion_num
+        high_notes = intervals[inversion_num:]
+
+        #take the first note and shift it an octave up
+        low_notes= [note+12 for note in intervals[:inversion_num]]
+
+        #combine
+        inverted = high_notes + low_notes
+
+        #save
+        result[f"{chord_name}_inv{inversion_num}"]= inverted 
+    
+    #add bass into each inversion
+    bass_versions= {}
+    for name, chord in result.items():
+        #bass will always correspond to the root note [0] -12 o -24 (one or two octaves below)
+        bass_note_low= intervals [0] -12
+        bass_note_lower= intervals [0] -24
+
+        bass_versions[f"{name}_bass_1"]= [bass_note_low] + chord
+        bass_versions[f"{name}_bass_2"]= [bass_note_lower] + chord
+    
+    #combine them all
+    result.update(bass_versions)
+    return result
+
+
+BASE_CHORDS= {
+    #triads 
+    'maj': [0,4,7], 
+    'min': [0,3,7], 
+    'dim': [0,3,6], 
+    'aug': [0,4,8], 
+    'sus2': [0,2,7], 
+    'sus4': [0,5,7], 
+
+    #seventh chords
+    'maj7': [0,4,7,11], 
+    'dom7': [0,4,7,10], 
+    'min7': [0,3,7,10], 
+    'min7b5': [0,3,6,10], 
+    'dim7': [0,3,6,9], 
+    '7sus4': [0,5,7,10], 
+
+    #extended chords
+    'maj9': [0,4,7,11,14], 
+    'min9': [0,3,7,10,14], 
+    'dom9': [0,4,7,10,14], 
+    'domsharp9': [0,4,7,10,15], 
+    'domflat9': [0,4,7,10,13], 
+}
+
+ARTIST_VOICINGS= {
+    #specific voicings, no inversions here
+    # k.barron, k.jarrett, b.evans
+    'min11_barron': [0, 7, 14, 15, 22, 29],  # 1, 5, 9, m3, 11, m7
+    'maj_sharp11_barron': [0, 7, 14, 16, 18, 23], #1, 5, 9, M3, #11 , M7
+    'min11_jarrett': [7,12,15,17,22,26,31], #5, 1, m3, 11, m7, 9, 5
+    'maj9_evans_sowhat': [4,9,14,19,23], #M3, 6, 9, 5, M7
+}
+
+#build full dictionary
+CHORD_VOICINGS = {}
+
+#generate all inversions and bass for base chords 
+for chord_name, intervals in BASE_CHORDS.items():
+    CHORD_VOICINGS.update(generate_inversions_with_bass(chord_name, intervals))
+
+#artistic-specific voicings remain as is
+CHORD_VOICINGS.update(ARTIST_VOICINGS)
+
+print(f"Total chord variations: {len(CHORD_VOICINGS)}")
+
+
 class DXDataset(data.Dataset):
     """DX7 sound patch dataset."""
 
