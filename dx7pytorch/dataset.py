@@ -4,89 +4,44 @@ from dx7pytorch import DX7_VOICE_SIZE_PACKED, DXSynth
 from dx7pytorch.filters import filter_allpass
 from os import path
 
-def generate_inversions_with_bass(chord_name, intervals):
-    result = {}
-    #root
-    result[chord_name] = intervals
-
-    #create each inversion
-    for inversion_num in range (1, len(intervals)):
-        #notes from inversion_num
-        high_notes = intervals[inversion_num:]
-
-        #take the first note and shift it an octave up
-        low_notes= [note+12 for note in intervals[:inversion_num]]
-
-        #combine
-        inverted = high_notes + low_notes
-
-        #save
-        result[f"{chord_name}_inv{inversion_num}"]= inverted 
-    
-    #add bass into each inversion
-    bass_versions= {}
-    for name, chord in result.items():
-        #bass will always correspond to the root note [0] -12 o -24 (one or two octaves below)
-        bass_note_low= intervals [0] -12
-        bass_note_lower= intervals [0] -24
-
-        bass_versions[f"{name}_bass_1"]= [bass_note_low] + chord
-        bass_versions[f"{name}_bass_2"]= [bass_note_lower] + chord
-    
-    #combine them all
-    result.update(bass_versions)
-    return result
-
-
-BASE_CHORDS= {
-    #triads 
-    'maj': [0,4,7], 
-    'min': [0,3,7], 
-    'dim': [0,3,6], 
-    'aug': [0,4,8], 
-    'sus2': [0,2,7], 
-    'sus4': [0,5,7], 
-
-    #seventh chords
-    'maj7': [0,4,7,11], 
-    'dom7': [0,4,7,10], 
-    'min7': [0,3,7,10], 
-    'min7b5': [0,3,6,10], 
-    'dim7': [0,3,6,9], 
-    '7sus4': [0,5,7,10], 
-
-    #extended chords
-    'maj9': [0,4,7,11,14], 
-    'min9': [0,3,7,10,14], 
-    'dom9': [0,4,7,10,14], 
-    'domsharp9': [0,4,7,10,15], 
-    'domflat9': [0,4,7,10,13], 
-}
-
-ARTIST_VOICINGS= {
-    #specific voicings, no inversions here
-    # k.barron, k.jarrett, b.evans
-    'min11_barron': [0, 7, 14, 15, 22, 29],  # 1, 5, 9, m3, 11, m7
-    'maj_sharp11_barron': [0, 7, 14, 16, 18, 23], #1, 5, 9, M3, #11 , M7
-    'min11_jarrett': [7,12,15,17,22,26,31], #5, 1, m3, 11, m7, 9, 5
-    'maj9_evans_sowhat': [4,9,14,19,23], #M3, 6, 9, 5, M7
-}
-
-#build full dictionary
-CHORD_VOICINGS = {}
-
-#generate all inversions and bass for base chords 
-for chord_name, intervals in BASE_CHORDS.items():
-    CHORD_VOICINGS.update(generate_inversions_with_bass(chord_name, intervals))
-
-#artistic-specific voicings remain as is
-CHORD_VOICINGS.update(ARTIST_VOICINGS)
-
-print(f"Total chord variations: {len(CHORD_VOICINGS)}")
-
 
 class DXDataset(data.Dataset):
     """DX7 sound patch dataset."""
+
+    #define chord dictionaries as class vars
+    BASE_CHORDS = {
+        #triads 
+        'maj': [0,4,7], 
+        'min': [0,3,7], 
+        'dim': [0,3,6], 
+        'aug': [0,4,8], 
+        'sus2': [0,2,7], 
+        'sus4': [0,5,7], 
+
+        #seventh chords
+        'maj7': [0,4,7,11], 
+        'dom7': [0,4,7,10], 
+        'min7': [0,3,7,10], 
+        'min7b5': [0,3,6,10], 
+        'dim7': [0,3,6,9], 
+        '7sus4': [0,5,7,10], 
+
+        #extended chords
+        'maj9': [0,4,7,11,14], 
+        'min9': [0,3,7,10,14], 
+        'dom9': [0,4,7,10,14], 
+        'domsharp9': [0,4,7,10,15], 
+        'domflat9': [0,4,7,10,13], 
+    }
+
+    ARTIST_VOICINGS = {
+        #specific voicings, no inversions here
+        #k.barron, k.jarrett, b.evans
+        'min11_barron': [0, 7, 14, 15, 22, 29],  # 1, 5, 9, m3, 11, m7
+        'maj_sharp11_barron': [0, 7, 14, 16, 18, 23], #1, 5, 9, M3, #11 , M7
+        'min11_jarrett': [7,12,15,17,22,26,31], #5, 1, m3, 11, m7, 9, 5
+        'maj9_evans_sowhat': [4,9,14,19,23], #M3, 6, 9, 5, M7
+    }
 
     def __init__(self, sample_rate:int,
             collection:str, 
@@ -96,7 +51,8 @@ class DXDataset(data.Dataset):
             note_off_len:int,
             subsample_ratio=None,
             random_seed=None,
-            filter_function=None):
+            filter_function=None,
+            chord_probability=0.5):
         """
         Args:
             sample_rate (int): Sample frequency of synthesizer.
@@ -111,6 +67,7 @@ class DXDataset(data.Dataset):
             random_seed (int): Seeds the random generator.
             
             filter_function (string): Selects a patch filter function. Available: 'all_ratio' and 'all_fixed'.
+            chord_probability (float): Probability of generating chords vs single notes (0.0 to 1.0).
             
         """
         np.random.seed(random_seed)
@@ -142,7 +99,7 @@ class DXDataset(data.Dataset):
             # Process Patch Name. Keep only names below 128 and decode to ascii.
             patch_name = patch[118:127]
             patch_name = patch_name * ( patch_name < 128)
-            patch_name = patch_name.tostring().decode('ascii')
+            patch_name = patch_name.tobytes().decode('ascii')
             
             #if(self.debug):
             #    print("Processing {}:{} ...".format(i,patch_name),end='')
@@ -166,6 +123,54 @@ class DXDataset(data.Dataset):
         #print("Starting with {} patches. \n\tnotes: {} \tvelocities: {} \n\
         #sample_rate: {} Hz \tnote_on_len: {} \tnote_off_len: {}".format(n_patches,self.valid_notes,self.valid_velocities,sample_rate,self.note_on_len,self.note_off_len))
         
+        #generate chord voicings
+        self.chord_voicings = self._generate_all_chord_voicings()
+        self.chord_probability = chord_probability
+        
+        #pre-determine which indices will be chords
+        total_items = self.__len__()
+        np.random.seed(random_seed if random_seed else 42)
+        self.is_chord = np.random.rand(total_items) < chord_probability
+        
+        print(f"Generated {len(self.chord_voicings)} chord voicings")
+        print(f"Dataset will use {chord_probability*100}% chords")
+        
+    def _generate_inversions(self, chord_name, intervals):
+        """Generate inversions for a chord without bass notes"""
+        result = {}
+        
+        #root position
+        result[chord_name] = intervals
+        
+        #create each inversion
+        for inversion_num in range(1, len(intervals)):
+            #notes from inversion_num
+            high_notes = intervals[inversion_num:]
+            
+            #take the first notes and shift them an octave up
+            low_notes = [note + 12 for note in intervals[:inversion_num]]
+            
+            #combine
+            inverted = high_notes + low_notes
+            
+            #save
+            result[f"{chord_name}_inv{inversion_num}"] = inverted
+        
+        return result
+    
+    def _generate_all_chord_voicings(self):
+        """Generate all chord voicings with inversions"""
+        voicings = {}
+        
+        #generate inversions for base chords
+        for chord_name, intervals in self.BASE_CHORDS.items():
+            voicings.update(self._generate_inversions(chord_name, intervals))
+        
+        #artistic-specific voicings remain as is
+        voicings.update(self.ARTIST_VOICINGS)
+        
+        return voicings
+        
     def __len__(self):
         n_notes = self.valid_notes.size
         n_velocities = self.valid_velocities.size
@@ -178,27 +183,82 @@ class DXDataset(data.Dataset):
         n_velocities = self.valid_velocities.size
         n_patches = self.patches.shape[0]
         idx_note = idx % (n_notes)
-        idx //= (n_notes)
-        idx_velocity =  idx % (n_velocities)
-        idx //= (n_velocities)
-        idx_patch = idx
+        temp_idx = idx // (n_notes)
+        idx_velocity = temp_idx % (n_velocities)
+        idx_patch = temp_idx // (n_velocities)
         
         #print("idx_patch {} idx_note {} idx_velocity {} ".format(idx_patch,idx_note,idx_velocity))
         patch = self.patches[idx_patch:idx_patch+1,:] #Wrapper expects array with 2D shape
-        note = self.valid_notes[idx_note]
         velocity = self.valid_velocities[idx_velocity]
-        x = self.synth.synthesize(patch,note,velocity,self.note_on_len,self.note_off_len)
-        y = self.unpack_packed_patch(patch[0])
-        y = np.asarray(y,dtype=np.float32)
-        #Extract name
-        patch_name = bytearray()
-        for p in y[145:155]:
-            p = int(p) & 0x7F
-            patch_name.append(p)
-        patch_name = patch_name.decode('ascii')
-        #REMOVE PATCH NAME AND OP ON/OFF
-        y = y[0:145]
-        return {'audio': x, 'patch': y,'name': patch_name,'note': note, 'velocity': velocity}
+        
+        # check if this index should be a chord
+        if self.is_chord[idx]:
+            # pick a chord based on idx
+            chord_list = list(self.chord_voicings.items())
+            chord_idx = idx % len(chord_list)
+            chord_name, intervals = chord_list[chord_idx]
+            
+            # use note from idx as root
+            root_note = self.valid_notes[idx_note]
+            chord_notes = [root_note + interval for interval in intervals]
+            
+            # filter out notes that are too high (>127) or too low (<0)
+            chord_notes = [n for n in chord_notes if 0 <= n <= 127]
+            
+            # synthesise chord using mixing approach
+            x = self.synth.synthesise_chord(patch, chord_notes, velocity, 
+                                           self.note_on_len, self.note_off_len)
+            
+            y = self.unpack_packed_patch(patch[0])
+            y = np.asarray(y, dtype=np.float32)
+            
+            #name extraction
+            patch_name = bytearray()
+            for p in y[145:155]:
+                p = int(p) & 0x7F
+                patch_name.append(p)
+            patch_name = patch_name.decode('ascii')
+            
+            #REMOVE PATCH NAME AND OP ON/OFF
+            y = y[0:145]
+            
+            return {
+                'audio': x,
+                'patch': y,
+                'name': patch_name,
+                'note': root_note,  #root note
+                'velocity': velocity,
+                'chord': chord_name  #chord type
+            
+            }
+        else:
+            # original single note behavior
+            note = self.valid_notes[idx_note]
+            x = self.synth.synthesize(patch, note, velocity, 
+                                     self.note_on_len, self.note_off_len)
+            
+            y = self.unpack_packed_patch(patch[0])
+            y = np.asarray(y, dtype=np.float32)
+            
+            #extract name
+            patch_name = bytearray()
+            for p in y[145:155]:
+                p = int(p) & 0x7F
+                patch_name.append(p)
+            patch_name = patch_name.decode('ascii')
+            
+            #REMOVE PATCH NAME AND OP ON/OFF
+            y = y[0:145]
+            
+            return {
+                'audio': x,
+                'patch': y,
+                'name': patch_name,
+                'note': note,
+                'velocity': velocity,
+                'chord': ''  #empty string instead of None for single notes
+                # Removed chord_notes - it causes batching issues
+            }
 
     # Nice unpacking method extracted from https://github.com/bwhitman/learnfm
     def unpack_packed_patch(self,p):
