@@ -170,6 +170,24 @@ class DXDataset(data.Dataset):
         voicings.update(self.ARTIST_VOICINGS)
         
         return voicings
+    
+    def _synthesise_chord(self, patch, notes, velocity):
+        """Synthesise a chord by mixing individual voices together"""
+        notes = np.asarray(notes)
+        
+        #synthesise each note independently and mix
+        x = np.zeros((1, self.note_on_len + self.note_off_len), dtype=np.float32)
+        
+        for note in notes:
+            #synthesise this note individually
+            note_audio = self.synth.synthesize(patch, note, velocity, 
+                                              self.note_on_len, self.note_off_len)
+            x += note_audio
+        
+        #normalise to prevent clipping but keep it musical
+        x = x * 0.7  # slight reduction instead of division by note count
+        
+        return x
         
     def __len__(self):
         n_notes = self.valid_notes.size
@@ -205,9 +223,8 @@ class DXDataset(data.Dataset):
             # filter out notes that are too high (>127) or too low (<0)
             chord_notes = [n for n in chord_notes if 0 <= n <= 127]
             
-            # synthesise chord using mixing approach
-            x = self.synth.synthesise_chord(patch, chord_notes, velocity, 
-                                           self.note_on_len, self.note_off_len)
+            # synthesise chord by mixing individual voices
+            x = self._synthesise_chord(patch, chord_notes, velocity)
             
             y = self.unpack_packed_patch(patch[0])
             y = np.asarray(y, dtype=np.float32)
@@ -257,7 +274,7 @@ class DXDataset(data.Dataset):
                 'note': note,
                 'velocity': velocity,
                 'chord': ''  #empty string instead of None for single notes
-                # Removed chord_notes - it causes batching issues
+                
             }
 
     # Nice unpacking method extracted from https://github.com/bwhitman/learnfm
