@@ -125,15 +125,20 @@ class DXDataset(data.Dataset):
         
         #generate chord voicings
         self.chord_voicings = self._generate_all_chord_voicings()
-        self.chord_probability = chord_probability
         
-        #pre-determine which indices will be chords
+        #pre-determine synthesis mode for each index (1/3 single, 1/3 chord, 1/3 arpeggio)
         total_items = self.__len__()
         np.random.seed(random_seed if random_seed else 42)
-        self.is_chord = np.random.rand(total_items) < chord_probability
+        
+        #assign modes: 0=single, 1=chord, 2=arpeggio
+        rand_values = np.random.rand(total_items)
+        self.synthesis_mode = np.zeros(total_items, dtype=int)
+        self.synthesis_mode[rand_values < 0.333] = 0  # single note
+        self.synthesis_mode[(rand_values >= 0.333) & (rand_values < 0.666)] = 1  # chord
+        self.synthesis_mode[rand_values >= 0.666] = 2  # arpeggio
         
         print(f"Generated {len(self.chord_voicings)} chord voicings")
-        print(f"Dataset will use {chord_probability*100}% chords")
+        print(f"Dataset will use: ~33% single notes, ~33% chords, ~33% arpeggios")
         
     def _generate_inversions(self, chord_name, intervals):
         """Generate inversions for a chord without bass notes"""
@@ -171,14 +176,21 @@ class DXDataset(data.Dataset):
         
         return voicings
     
-    def _synthesise_chord(self, patch, notes, velocity):
-        """Synthesise a chord by mixing individual voices together"""
+    def _synthesise_chord(self, patch, notes, base_velocity, use_velocity_variation=True):
+        """Synthesise a chord by mixing individual voices together with velocity variation"""
         notes = np.asarray(notes)
         
         #synthesise each note independently and mix
         x = np.zeros((1, self.note_on_len + self.note_off_len), dtype=np.float32)
         
         for note in notes:
+            #apply Gaussian velocity variation if enabled
+            if use_velocity_variation:
+                velocity = int(np.random.normal(base_velocity, 20))
+                velocity = np.clip(velocity, 1, 127)  # clip to valid MIDI range
+            else:
+                velocity = base_velocity
+            
             #synthesise this note individually
             note_audio = self.synth.synthesize(patch, note, velocity, 
                                               self.note_on_len, self.note_off_len)
@@ -186,6 +198,34 @@ class DXDataset(data.Dataset):
         
         #normalise to prevent clipping but keep it musical
         x = x * 0.7  # slight reduction instead of division by note count
+        
+        return x
+    
+    def _synthesise_arpeggio(self, patch, notes, base_velocity):
+        """Synthesise an arpeggio by placing notes sequentially with velocity variation"""
+        notes = np.asarray(notes)
+        n_notes = len(notes)
+        
+        #calculate timing for each note in the arpeggio
+        total_samples = self.note_on_len + self.note_off_len
+        note_duration = total_samples // n_notes
+        
+        #create output buffer
+        x = np.zeros((1, total_samples), dtype=np.float32)
+        
+        for i, note in enumerate(notes):
+            #apply Gaussian velocity variation
+            velocity = int(np.random.normal(base_velocity, 20))
+            velocity = np.clip(velocity, 1, 127)
+            
+            #synthesise this note
+            note_audio = self.synth.synthesize(patch, note, velocity,
+                                              note_duration, 0)  # no note-off for smoother arpeggio
+            
+            #place it in the correct position
+            start_idx = i * note_duration
+            end_idx = min(start_idx + note_duration, total_samples)
+            x[0, start_idx:end_idx] += note_audio[0, :end_idx-start_idx]
         
         return x
         
@@ -209,9 +249,11 @@ class DXDataset(data.Dataset):
         patch = self.patches[idx_patch:idx_patch+1,:] #Wrapper expects array with 2D shape
         velocity = self.valid_velocities[idx_velocity]
         
-        # check if this index should be a chord
-        if self.is_chord[idx]:
-            # pick a chord based on idx
+        # check synthesis mode for this index
+        mode = self.synthesis_mode[idx]
+        
+        if mode in [1, 2]:  # chord or arpeggio
+            # pick a chord voicing based on idx
             chord_list = list(self.chord_voicings.items())
             chord_idx = idx % len(chord_list)
             chord_name, intervals = chord_list[chord_idx]
@@ -223,8 +265,13 @@ class DXDataset(data.Dataset):
             # filter out notes that are too high (>127) or too low (<0)
             chord_notes = [n for n in chord_notes if 0 <= n <= 127]
             
-            # synthesise chord by mixing individual voices
-            x = self._synthesise_chord(patch, chord_notes, velocity)
+            # synthesise based on mode
+            if mode == 1:  # chord
+                x = self._synthesise_chord(patch, chord_notes, velocity)
+                synthesis_type = 'chord'
+            else:  # mode == 2, arpeggio
+                x = self._synthesise_arpeggio(patch, chord_notes, velocity)
+                synthesis_type = 'arpeggio'
             
             y = self.unpack_packed_patch(patch[0])
             y = np.asarray(y, dtype=np.float32)
@@ -245,10 +292,9 @@ class DXDataset(data.Dataset):
                 'name': patch_name,
                 'note': root_note,  #root note
                 'velocity': velocity,
-                'chord': chord_name  #chord type
-            
+                'chord': chord_name  #chord voicing name
             }
-        else:
+        else:  # mode == 0, single note
             # original single note behavior
             note = self.valid_notes[idx_note]
             x = self.synth.synthesize(patch, note, velocity, 
