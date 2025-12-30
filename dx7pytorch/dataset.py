@@ -1,9 +1,14 @@
 from torch.utils import data
 import numpy as np
 from dx7pytorch import DX7_VOICE_SIZE_PACKED, DXSynth
-from dx7pytorch.filters import filter_allpass
+from dx7pytorch.filters import filter_none
 from os import path
+from enum import IntEnum
 
+class SynthesisMode(IntEnum):
+    SINGLE_NOTE = 0
+    CHORD = 1
+    ARPEGGIO = 2
 
 class DXDataset(data.Dataset):
     """DX7 sound patch dataset."""
@@ -52,7 +57,7 @@ class DXDataset(data.Dataset):
             subsample_ratio=None,
             random_seed=None,
             filter_function=None,
-            chord_probability=0.5):
+            mode_probabilities=[0.33,0.34,0.33]):
         """
         Args:
             sample_rate (int): Sample frequency of synthesizer.
@@ -67,9 +72,11 @@ class DXDataset(data.Dataset):
             random_seed (int): Seeds the random generator.
             
             filter_function (string): Selects a patch filter function. Available: 'all_ratio' and 'all_fixed'.
-            chord_probability (float): Probability of generating chords vs single notes (0.0 to 1.0).
+            mode_probabilities (float): Probability of generating [single notes, chords, arpeggios]
             
         """
+        assert np.sum(mode_probabilities) == 1.0, "Mode Probabilities has to sum up to 1."
+        self.mode_probabilities = mode_probabilities
         np.random.seed(random_seed)
         #self.debug = debug
         
@@ -89,7 +96,7 @@ class DXDataset(data.Dataset):
         #if(self.debug): print("[DEBUG] Total patches: {}".format(n_patches))
         
         if filter_function is None:
-            my_filter = filter_allpass
+            my_filter = filter_none
         else:
             my_filter = filter_function
         
@@ -125,7 +132,7 @@ class DXDataset(data.Dataset):
         
         #generate chord voicings
         self.chord_voicings = self._generate_all_chord_voicings()
-        
+        '''
         #pre-determine synthesis mode for each index (1/3 single, 1/3 chord, 1/3 arpeggio)
         total_items = self.__len__()
         np.random.seed(random_seed if random_seed else 42)
@@ -137,8 +144,9 @@ class DXDataset(data.Dataset):
         self.synthesis_mode[(rand_values >= 0.333) & (rand_values < 0.666)] = 1  # chord
         self.synthesis_mode[rand_values >= 0.666] = 2  # arpeggio
         
-        print(f"Generated {len(self.chord_voicings)} chord voicings")
-        print(f"Dataset will use: ~33% single notes, ~33% chords, ~33% arpeggios")
+        #print(f"Generated {len(self.chord_voicings)} chord voicings")
+        #print(f"Dataset will use: ~33% single notes, ~33% chords, ~33% arpeggios")
+        '''
         
     def _generate_inversions(self, chord_name, intervals):
         """Generate inversions for a chord without bass notes"""
@@ -196,8 +204,9 @@ class DXDataset(data.Dataset):
                                               self.note_on_len, self.note_off_len)
             x += note_audio
         
-        #normalise to prevent clipping but keep it musical
-        x = x * 0.7  # slight reduction instead of division by note count
+        #normalise to prevent clipping
+        if (np.max(x) > 1.0):
+            x = x / np.max(x)
         
         return x
     
@@ -228,7 +237,13 @@ class DXDataset(data.Dataset):
             x[0, start_idx:end_idx] += note_audio[0, :end_idx-start_idx]
         
         return x
-        
+
+    def _draw_mode(self):
+        choices = list(SynthesisMode)
+        # Draw the mode
+        c = np.random.choice(choices, p=self.mode_probabilities)
+        return SynthesisMode(c)
+
     def __len__(self):
         n_notes = self.valid_notes.size
         n_velocities = self.valid_velocities.size
@@ -250,9 +265,9 @@ class DXDataset(data.Dataset):
         velocity = self.valid_velocities[idx_velocity]
         
         # check synthesis mode for this index
-        mode = self.synthesis_mode[idx]
+        mode = self._draw_mode()
         
-        if mode in [1, 2]:  # chord or arpeggio
+        if mode.name == "CHORD" or mode.name == "ARPEGGIO":
             # pick a chord voicing based on idx
             chord_list = list(self.chord_voicings.items())
             chord_idx = idx % len(chord_list)
@@ -266,12 +281,10 @@ class DXDataset(data.Dataset):
             chord_notes = [n for n in chord_notes if 0 <= n <= 127]
             
             # synthesise based on mode
-            if mode == 1:  # chord
+            if mode.name == "CHORD":
                 x = self._synthesise_chord(patch, chord_notes, velocity)
-                synthesis_type = 'chord'
-            else:  # mode == 2, arpeggio
+            else:  # mode.name == "ARPEGGIO"
                 x = self._synthesise_arpeggio(patch, chord_notes, velocity)
-                synthesis_type = 'arpeggio'
             
             y = self.unpack_packed_patch(patch[0])
             y = np.asarray(y, dtype=np.float32)
@@ -292,10 +305,9 @@ class DXDataset(data.Dataset):
                 'name': patch_name,
                 'note': root_note,  #root note
                 'velocity': velocity,
-                'chord': chord_name  #chord voicing name
+                'mode': mode.name + ' ' + chord_name 
             }
-        else:  # mode == 0, single note
-            # original single note behavior
+        else:  # mode.name == SINGLE_NOTE
             note = self.valid_notes[idx_note]
             x = self.synth.synthesize(patch, note, velocity, 
                                      self.note_on_len, self.note_off_len)
@@ -319,8 +331,7 @@ class DXDataset(data.Dataset):
                 'name': patch_name,
                 'note': note,
                 'velocity': velocity,
-                'chord': ''  #empty string instead of None for single notes
-                
+                'mode': mode.name  #empty string instead of None for single notes
             }
 
     # Nice unpacking method extracted from https://github.com/bwhitman/learnfm
