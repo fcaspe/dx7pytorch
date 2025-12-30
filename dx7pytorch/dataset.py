@@ -4,8 +4,44 @@ from dx7pytorch import DX7_VOICE_SIZE_PACKED, DXSynth
 from dx7pytorch.filters import filter_allpass
 from os import path
 
+
 class DXDataset(data.Dataset):
     """DX7 sound patch dataset."""
+
+    #define chord dictionaries as class vars
+    BASE_CHORDS = {
+        #triads 
+        'maj': [0,4,7], 
+        'min': [0,3,7], 
+        'dim': [0,3,6], 
+        'aug': [0,4,8], 
+        'sus2': [0,2,7], 
+        'sus4': [0,5,7], 
+
+        #seventh chords
+        'maj7': [0,4,7,11], 
+        'dom7': [0,4,7,10], 
+        'min7': [0,3,7,10], 
+        'min7b5': [0,3,6,10], 
+        'dim7': [0,3,6,9], 
+        '7sus4': [0,5,7,10], 
+
+        #extended chords
+        'maj9': [0,4,7,11,14], 
+        'min9': [0,3,7,10,14], 
+        'dom9': [0,4,7,10,14], 
+        'domsharp9': [0,4,7,10,15], 
+        'domflat9': [0,4,7,10,13], 
+    }
+
+    ARTIST_VOICINGS = {
+        #specific voicings, no inversions here
+        #k.barron, k.jarrett, b.evans
+        'min11_barron': [0, 7, 14, 15, 22, 29],  # 1, 5, 9, m3, 11, m7
+        'maj_sharp11_barron': [0, 7, 14, 16, 18, 23], #1, 5, 9, M3, #11 , M7
+        'min11_jarrett': [7,12,15,17,22,26,31], #5, 1, m3, 11, m7, 9, 5
+        'maj9_evans_sowhat': [4,9,14,19,23], #M3, 6, 9, 5, M7
+    }
 
     def __init__(self, sample_rate:int,
             collection:str, 
@@ -15,7 +51,8 @@ class DXDataset(data.Dataset):
             note_off_len:int,
             subsample_ratio=None,
             random_seed=None,
-            filter_function=None):
+            filter_function=None,
+            chord_probability=0.5):
         """
         Args:
             sample_rate (int): Sample frequency of synthesizer.
@@ -30,6 +67,7 @@ class DXDataset(data.Dataset):
             random_seed (int): Seeds the random generator.
             
             filter_function (string): Selects a patch filter function. Available: 'all_ratio' and 'all_fixed'.
+            chord_probability (float): Probability of generating chords vs single notes (0.0 to 1.0).
             
         """
         np.random.seed(random_seed)
@@ -61,7 +99,7 @@ class DXDataset(data.Dataset):
             # Process Patch Name. Keep only names below 128 and decode to ascii.
             patch_name = patch[118:127]
             patch_name = patch_name * ( patch_name < 128)
-            patch_name = patch_name.tostring().decode('ascii')
+            patch_name = patch_name.tobytes().decode('ascii')
             
             #if(self.debug):
             #    print("Processing {}:{} ...".format(i,patch_name),end='')
@@ -85,6 +123,112 @@ class DXDataset(data.Dataset):
         #print("Starting with {} patches. \n\tnotes: {} \tvelocities: {} \n\
         #sample_rate: {} Hz \tnote_on_len: {} \tnote_off_len: {}".format(n_patches,self.valid_notes,self.valid_velocities,sample_rate,self.note_on_len,self.note_off_len))
         
+        #generate chord voicings
+        self.chord_voicings = self._generate_all_chord_voicings()
+        
+        #pre-determine synthesis mode for each index (1/3 single, 1/3 chord, 1/3 arpeggio)
+        total_items = self.__len__()
+        np.random.seed(random_seed if random_seed else 42)
+        
+        #assign modes: 0=single, 1=chord, 2=arpeggio
+        rand_values = np.random.rand(total_items)
+        self.synthesis_mode = np.zeros(total_items, dtype=int)
+        self.synthesis_mode[rand_values < 0.333] = 0  # single note
+        self.synthesis_mode[(rand_values >= 0.333) & (rand_values < 0.666)] = 1  # chord
+        self.synthesis_mode[rand_values >= 0.666] = 2  # arpeggio
+        
+        print(f"Generated {len(self.chord_voicings)} chord voicings")
+        print(f"Dataset will use: ~33% single notes, ~33% chords, ~33% arpeggios")
+        
+    def _generate_inversions(self, chord_name, intervals):
+        """Generate inversions for a chord without bass notes"""
+        result = {}
+        
+        #root position
+        result[chord_name] = intervals
+        
+        #create each inversion
+        for inversion_num in range(1, len(intervals)):
+            #notes from inversion_num
+            high_notes = intervals[inversion_num:]
+            
+            #take the first notes and shift them an octave up
+            low_notes = [note + 12 for note in intervals[:inversion_num]]
+            
+            #combine
+            inverted = high_notes + low_notes
+            
+            #save
+            result[f"{chord_name}_inv{inversion_num}"] = inverted
+        
+        return result
+    
+    def _generate_all_chord_voicings(self):
+        """Generate all chord voicings with inversions"""
+        voicings = {}
+        
+        #generate inversions for base chords
+        for chord_name, intervals in self.BASE_CHORDS.items():
+            voicings.update(self._generate_inversions(chord_name, intervals))
+        
+        #artistic-specific voicings remain as is
+        voicings.update(self.ARTIST_VOICINGS)
+        
+        return voicings
+    
+    def _synthesise_chord(self, patch, notes, base_velocity, use_velocity_variation=True):
+        """Synthesise a chord by mixing individual voices together with velocity variation"""
+        notes = np.asarray(notes)
+        
+        #synthesise each note independently and mix
+        x = np.zeros((1, self.note_on_len + self.note_off_len), dtype=np.float32)
+        
+        for note in notes:
+            #apply Gaussian velocity variation if enabled
+            if use_velocity_variation:
+                velocity = int(np.random.normal(base_velocity, 20))
+                velocity = np.clip(velocity, 1, 127)  # clip to valid MIDI range
+            else:
+                velocity = base_velocity
+            
+            #synthesise this note individually
+            note_audio = self.synth.synthesize(patch, note, velocity, 
+                                              self.note_on_len, self.note_off_len)
+            x += note_audio
+        
+        #normalise to prevent clipping but keep it musical
+        x = x * 0.7  # slight reduction instead of division by note count
+        
+        return x
+    
+    def _synthesise_arpeggio(self, patch, notes, base_velocity):
+        """Synthesise an arpeggio by placing notes sequentially with velocity variation"""
+        notes = np.asarray(notes)
+        n_notes = len(notes)
+        
+        #calculate timing for each note in the arpeggio
+        total_samples = self.note_on_len + self.note_off_len
+        note_duration = total_samples // n_notes
+        
+        #create output buffer
+        x = np.zeros((1, total_samples), dtype=np.float32)
+        
+        for i, note in enumerate(notes):
+            #apply Gaussian velocity variation
+            velocity = int(np.random.normal(base_velocity, 20))
+            velocity = np.clip(velocity, 1, 127)
+            
+            #synthesise this note
+            note_audio = self.synth.synthesize(patch, note, velocity,
+                                              note_duration, 0)  # no note-off for smoother arpeggio
+            
+            #place it in the correct position
+            start_idx = i * note_duration
+            end_idx = min(start_idx + note_duration, total_samples)
+            x[0, start_idx:end_idx] += note_audio[0, :end_idx-start_idx]
+        
+        return x
+        
     def __len__(self):
         n_notes = self.valid_notes.size
         n_velocities = self.valid_velocities.size
@@ -97,27 +241,87 @@ class DXDataset(data.Dataset):
         n_velocities = self.valid_velocities.size
         n_patches = self.patches.shape[0]
         idx_note = idx % (n_notes)
-        idx //= (n_notes)
-        idx_velocity =  idx % (n_velocities)
-        idx //= (n_velocities)
-        idx_patch = idx
+        temp_idx = idx // (n_notes)
+        idx_velocity = temp_idx % (n_velocities)
+        idx_patch = temp_idx // (n_velocities)
         
         #print("idx_patch {} idx_note {} idx_velocity {} ".format(idx_patch,idx_note,idx_velocity))
         patch = self.patches[idx_patch:idx_patch+1,:] #Wrapper expects array with 2D shape
-        note = self.valid_notes[idx_note]
         velocity = self.valid_velocities[idx_velocity]
-        x = self.synth.synthesize(patch,note,velocity,self.note_on_len,self.note_off_len)
-        y = self.unpack_packed_patch(patch[0])
-        y = np.asarray(y,dtype=np.float32)
-        #Extract name
-        patch_name = bytearray()
-        for p in y[145:155]:
-            p = int(p) & 0x7F
-            patch_name.append(p)
-        patch_name = patch_name.decode('ascii')
-        #REMOVE PATCH NAME AND OP ON/OFF
-        y = y[0:145]
-        return {'audio': x, 'patch': y,'name': patch_name,'note': note, 'velocity': velocity}
+        
+        # check synthesis mode for this index
+        mode = self.synthesis_mode[idx]
+        
+        if mode in [1, 2]:  # chord or arpeggio
+            # pick a chord voicing based on idx
+            chord_list = list(self.chord_voicings.items())
+            chord_idx = idx % len(chord_list)
+            chord_name, intervals = chord_list[chord_idx]
+            
+            # use note from idx as root
+            root_note = self.valid_notes[idx_note]
+            chord_notes = [root_note + interval for interval in intervals]
+            
+            # filter out notes that are too high (>127) or too low (<0)
+            chord_notes = [n for n in chord_notes if 0 <= n <= 127]
+            
+            # synthesise based on mode
+            if mode == 1:  # chord
+                x = self._synthesise_chord(patch, chord_notes, velocity)
+                synthesis_type = 'chord'
+            else:  # mode == 2, arpeggio
+                x = self._synthesise_arpeggio(patch, chord_notes, velocity)
+                synthesis_type = 'arpeggio'
+            
+            y = self.unpack_packed_patch(patch[0])
+            y = np.asarray(y, dtype=np.float32)
+            
+            #name extraction
+            patch_name = bytearray()
+            for p in y[145:155]:
+                p = int(p) & 0x7F
+                patch_name.append(p)
+            patch_name = patch_name.decode('ascii')
+            
+            #REMOVE PATCH NAME AND OP ON/OFF
+            y = y[0:145]
+            
+            return {
+                'audio': x,
+                'patch': y,
+                'name': patch_name,
+                'note': root_note,  #root note
+                'velocity': velocity,
+                'chord': chord_name  #chord voicing name
+            }
+        else:  # mode == 0, single note
+            # original single note behavior
+            note = self.valid_notes[idx_note]
+            x = self.synth.synthesize(patch, note, velocity, 
+                                     self.note_on_len, self.note_off_len)
+            
+            y = self.unpack_packed_patch(patch[0])
+            y = np.asarray(y, dtype=np.float32)
+            
+            #extract name
+            patch_name = bytearray()
+            for p in y[145:155]:
+                p = int(p) & 0x7F
+                patch_name.append(p)
+            patch_name = patch_name.decode('ascii')
+            
+            #REMOVE PATCH NAME AND OP ON/OFF
+            y = y[0:145]
+            
+            return {
+                'audio': x,
+                'patch': y,
+                'name': patch_name,
+                'note': note,
+                'velocity': velocity,
+                'chord': ''  #empty string instead of None for single notes
+                
+            }
 
     # Nice unpacking method extracted from https://github.com/bwhitman/learnfm
     def unpack_packed_patch(self,p):
