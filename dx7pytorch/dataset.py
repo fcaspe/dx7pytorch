@@ -1,8 +1,10 @@
 from torch.utils import data
+from typing import Literal
 import numpy as np
 from dx7pytorch import DX7_VOICE_SIZE_PACKED, DXSynth
 from dx7pytorch.filters import filter_none
 from os import path
+import os
 from enum import IntEnum
 
 class SynthesisMode(IntEnum):
@@ -55,9 +57,9 @@ class DXDataset(data.Dataset):
             note_on_len:int,
             note_off_len:int,
             subsample_ratio=None,
-            random_seed=None,
             filter_function=None,
-            mode_probabilities=[0.33,0.34,0.33]):
+            mode_probabilities=[0.33,0.34,0.33],
+            output_mode: Literal['audio','complete']='complete'):
         """
         Args:
             sample_rate (int): Sample frequency of synthesizer.
@@ -69,7 +71,6 @@ class DXDataset(data.Dataset):
             note_off_len (int): Number of samples to synthesize on note_off.
             
             subsample_ratio (float): Used to randomly subsample the available patches.
-            random_seed (int): Seeds the random generator.
             
             filter_function (string): Selects a patch filter function. Available: 'all_ratio' and 'all_fixed'.
             mode_probabilities (float): Probability of generating [single notes, chords, arpeggios]
@@ -77,7 +78,7 @@ class DXDataset(data.Dataset):
         """
         assert np.sum(mode_probabilities) == 1.0, "Mode Probabilities has to sum up to 1."
         self.mode_probabilities = mode_probabilities
-        np.random.seed(random_seed)
+        self.output_mode = output_mode
         #self.debug = debug
         
         #Instantiate Synthesizer
@@ -87,14 +88,20 @@ class DXDataset(data.Dataset):
         
         patch_file = path.abspath(collection)
         
+        _, extension = os.path.splitext(patch_file)
+        if extension == '.syx':
+            bulk_patches = np.fromfile(patch_file, dtype=np.uint8)[6:4102]
+        else:
+            bulk_patches = np.fromfile(patch_file, dtype=np.uint8)
+
         # Open file list to process patches. 
         # I think the easiest way is to store everythig in RAM, to minimize disk access.
-        self.patches = np.empty(0)
         
-        bulk_patches = np.fromfile(patch_file, dtype=np.uint8)
+        
+        
         n_patches = int(len(bulk_patches)/DX7_VOICE_SIZE_PACKED)
-        #if(self.debug): print("[DEBUG] Total patches: {}".format(n_patches))
-        
+        #print("[DEBUG] Total patches: {}".format(n_patches))
+        self.patches = np.empty(0)
         if filter_function is None:
             my_filter = filter_none
         else:
@@ -109,7 +116,7 @@ class DXDataset(data.Dataset):
             patch_name = patch_name.tobytes().decode('ascii')
             
             #if(self.debug):
-            #    print("Processing {}:{} ...".format(i,patch_name),end='')
+            #print("Processing {}:{} ...".format(i,patch_name),end='')
             
             if(my_filter(patch) == True):
                 if(subsample_ratio!= None):
@@ -299,7 +306,7 @@ class DXDataset(data.Dataset):
             #REMOVE PATCH NAME AND OP ON/OFF
             y = y[0:145]
             
-            return {
+            retval = {
                 'audio': x,
                 'patch': y,
                 'name': patch_name,
@@ -325,7 +332,7 @@ class DXDataset(data.Dataset):
             #REMOVE PATCH NAME AND OP ON/OFF
             y = y[0:145]
             
-            return {
+            retval = {
                 'audio': x,
                 'patch': y,
                 'name': patch_name,
@@ -333,6 +340,10 @@ class DXDataset(data.Dataset):
                 'velocity': velocity,
                 'mode': mode.name  #empty string instead of None for single notes
             }
+        if self.output_mode == 'complete':
+            return retval
+        else:
+            return x
 
     # Nice unpacking method extracted from https://github.com/bwhitman/learnfm
     def unpack_packed_patch(self,p):
