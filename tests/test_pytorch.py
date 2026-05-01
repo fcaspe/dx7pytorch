@@ -11,12 +11,12 @@ sr = 48000
 collection_path = '../dataset/collection.bin'
 dataset = DXDataset(sr,
     collection_path,
-    valid_notes=(48,50),
-    valid_velocities=(127,),
+    valid_notes=[i for i in range(12,70,1)],
+    valid_velocities=[i for i in range(1,99,1)],
     note_on_len= sr,
     note_off_len=sr,
     subsample_ratio = 0.1,
-    random_seed=1234)
+    transpose_extra = -12)
 
 n_train_examples = int(len(dataset)*0.7)
 n_valid_examples = int(len(dataset)*0.2)

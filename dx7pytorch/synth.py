@@ -91,6 +91,8 @@ class DXSynth:
         # Initialize hexter
         self.instance = hexter_init(np.uint32(sampling_frequency), self.patch_buffer_pointer)
 
+        self.reset_synth()
+
     def note_on(self, note, velocity):
         self.do_note_on(self.instance, note.astype(np.uint8), velocity.astype(np.uint8))
 

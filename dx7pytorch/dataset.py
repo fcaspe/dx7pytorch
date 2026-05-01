@@ -56,8 +56,10 @@ class DXDataset(data.Dataset):
             valid_velocities,
             note_on_len:int,
             note_off_len:int,
+            valid_patches=None,
             subsample_ratio=None,
             filter_function=None,
+            transpose_extra=None,
             mode_probabilities=[0.33,0.34,0.33],
             output_mode: Literal['audio','complete']='complete'):
         """
@@ -79,6 +81,7 @@ class DXDataset(data.Dataset):
         assert np.sum(mode_probabilities) == 1.0, "Mode Probabilities has to sum up to 1."
         self.mode_probabilities = mode_probabilities
         self.output_mode = output_mode
+        self.transpose_extra = transpose_extra
         #self.debug = debug
         
         #Instantiate Synthesizer
@@ -129,6 +132,8 @@ class DXDataset(data.Dataset):
         patch_byte_count = self.patches.size
         n_patches = patch_byte_count // DX7_VOICE_SIZE_PACKED
         self.patches = self.patches.reshape((n_patches, DX7_VOICE_SIZE_PACKED)).astype(np.uint8)
+        if valid_patches is not None:
+            self.patches = self.patches[valid_patches,:]
         # Store synthesis parameters
         self.valid_notes = np.asarray(valid_notes)
         self.valid_velocities = np.asarray(valid_velocities)
@@ -221,7 +226,6 @@ class DXDataset(data.Dataset):
         """Synthesise an arpeggio by placing notes sequentially with velocity variation"""
         notes = np.asarray(notes)
         n_notes = len(notes)
-        
         #calculate timing for each note in the arpeggio
         total_samples = self.note_on_len + self.note_off_len
         note_duration = total_samples // n_notes
@@ -271,9 +275,9 @@ class DXDataset(data.Dataset):
         patch = self.patches[idx_patch:idx_patch+1,:] #Wrapper expects array with 2D shape
         velocity = self.valid_velocities[idx_velocity]
         
+        xt = None
         # check synthesis mode for this index
         mode = self._draw_mode()
-        
         if mode.name == "CHORD" or mode.name == "ARPEGGIO":
             # pick a chord voicing based on idx
             chord_list = list(self.chord_voicings.items())
@@ -283,15 +287,22 @@ class DXDataset(data.Dataset):
             # use note from idx as root
             root_note = self.valid_notes[idx_note]
             chord_notes = [root_note + interval for interval in intervals]
-            
+            chord_notes_t = None
+            if self.transpose_extra is not None:
+                chord_notes_t = [n + self.transpose_extra for n in chord_notes]
+
             # filter out notes that are too high (>127) or too low (<0)
             chord_notes = [n for n in chord_notes if 0 <= n <= 127]
             
             # synthesise based on mode
             if mode.name == "CHORD":
                 x = self._synthesise_chord(patch, chord_notes, velocity)
+                if chord_notes_t is not None:
+                    xt = self._synthesise_chord(patch, chord_notes_t, velocity)
             else:  # mode.name == "ARPEGGIO"
                 x = self._synthesise_arpeggio(patch, chord_notes, velocity)
+                if chord_notes_t is not None:
+                    xt = self._synthesise_arpeggio(patch, chord_notes_t, velocity)
             
             y = self.unpack_packed_patch(patch[0])
             y = np.asarray(y, dtype=np.float32)
@@ -316,9 +327,14 @@ class DXDataset(data.Dataset):
             }
         else:  # mode.name == SINGLE_NOTE
             note = self.valid_notes[idx_note]
+            # Synth twice to flush
             x = self.synth.synthesize(patch, note, velocity, 
                                      self.note_on_len, self.note_off_len)
-            
+            x = self.synth.synthesize(patch, note, velocity, 
+                                     self.note_on_len, self.note_off_len)
+            if self.transpose_extra is not None:
+                xt = self.synth.synthesize(patch, note + self.transpose_extra,
+                                    velocity, self.note_on_len, self.note_off_len)
             y = self.unpack_packed_patch(patch[0])
             y = np.asarray(y, dtype=np.float32)
             
@@ -340,6 +356,8 @@ class DXDataset(data.Dataset):
                 'velocity': velocity,
                 'mode': mode.name  #empty string instead of None for single notes
             }
+        if xt is not None:
+            retval.update({'audio_t':xt})
         if self.output_mode == 'complete':
             return retval
         else:

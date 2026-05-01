@@ -285,7 +285,7 @@ dx7_voice_render(hexter_instance_t *instance, dx7_voice_t *voice,
                  int do_control_update)
 {
     unsigned long       sample;
-    static dx7_sample_t ampmod[4] = { 0 };
+    dx7_sample_t ampmod[4] = { 0 };
     dx7_sample_t        i;
     dx7_sample_t        output;
 

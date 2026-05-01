@@ -115,7 +115,8 @@ hexter_instantiate(unsigned long sample_rate, dx7_patch_t * patch_buffer)
         }
     }
     /*Assign patch buffer provided by Python.*/
-    instance->patches = patch_buffer;
+    instance->patches = (dx7_patch_t *)malloc(sizeof(dx7_patch_t) * 128);
+    memcpy(instance->patches, patch_buffer, sizeof(dx7_patch_t) * 128);
 
     instance->sample_rate = (float)sample_rate;
     instance->nugget_remains = 0;
@@ -199,7 +200,7 @@ hexter_instance_t* hexter_init(unsigned long sample_rate,dx7_patch_t * patch_buf
     
     //printf("[DEBUG] dxcore.so: Library called. Attemping to create hexter instance . . .\n");
     
-    hexter_instance_t* instance = hexter_instantiate(16000,         //Sample rate.
+    hexter_instance_t* instance = hexter_instantiate(sample_rate,         //Sample rate.
                                                     patch_buffer);  //Patch buffer provided by Python.
 
 
@@ -239,6 +240,7 @@ void hexter_clean_and_exit(hexter_instance_t* instance)
     {
     free(instance->tuning);
     free(instance->volume);    
+    free(instance->patches);
     hexter_cleanup(instance);
     
     return;
